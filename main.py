@@ -166,6 +166,7 @@ TEXTS = {
         "btn_question": "❓ Получить вопрос",
         "btn_test": "🧪 Режим теста",
         "btn_listening": "🎧 Аудирование",
+        "btn_flashcards": "🗂 Карточки",
         "btn_premium": "⭐️ Премиум",
         "btn_stats": "📊 Статистика",
         "btn_help": "ℹ️ Помощь",
@@ -195,6 +196,17 @@ TEXTS = {
         "listening_no_access": "🎧 Режим аудирования доступен только в тарифе *Премиум + Тест* (1590 ₸/мес).",
         "btn_show_text": "👁 Показать текст",
         "listening_question_hidden": "🎧 *Аудирование · {subject}*\n\n_Прослушай голосовое сообщение выше и выбери правильный перевод_\n\n{opts}\n\n_{counter}_",
+        "flashcards_intro": "🗂 *Карточки для запоминания*\n\nКлассический метод интервального повторения (SRS) — как в Anki.\n\nЯ показываю иероглиф, ты вспоминаешь перевод в уме, потом нажимаешь «Показать ответ» и честно оцениваешь себя. Карточки, которые ты не знал, будут повторяться чаще.\n\nВыбери уровень HSK 👇",
+        "flashcards_no_access": "🗂 Режим карточек доступен только в тарифе *Премиум + Тест* (1590 ₸/мес).",
+        "flashcards_started": "🗂 Начинаем карточки по уровню: *{label}*\n📊 Выучено: {learned}/{total}",
+        "btn_show_answer": "👁 Показать ответ",
+        "flashcard_front": "🗂 *{subject}*\n\n{question}\n\n_Постарайся вспомнить перевод, потом нажми «Показать ответ»_",
+        "flashcard_back": "🗂 *{subject}*\n\n{question}\n\n✅ *Ответ:* {answer}\n\n💡 {exp}\n\nТы знал этот ответ?",
+        "btn_knew_it": "✅ Знал",
+        "btn_didnt_know": "❌ Не знал",
+        "flashcard_knew_feedback": "🔥 Отлично! Эта карточка вернётся через {interval} дн.",
+        "flashcard_didnt_know_feedback": "💪 Ничего, повторим через 10 минут — запомнится!",
+        "flashcards_progress": "📊 Выучено: {learned}/{total} карточек",
         "all_subjects_label": "Все уровни",
         "stats_title": "📊 *Статистика по HSK*\n🎫 Тариф: {plan}{until}\n",
         "stats_no_answers": "\nЕщё нет ответов. Нажми *❓ Получить вопрос* 🚀",
@@ -224,6 +236,7 @@ TEXTS = {
         "btn_question": "❓ Сұрақ алу",
         "btn_test": "🧪 Тест режимі",
         "btn_listening": "🎧 Тыңдалым",
+        "btn_flashcards": "🗂 Карточкалар",
         "btn_premium": "⭐️ Премиум",
         "btn_stats": "📊 Статистика",
         "btn_help": "ℹ️ Көмек",
@@ -253,6 +266,17 @@ TEXTS = {
         "listening_no_access": "🎧 Тыңдалым режимі тек *Премиум + Тест* тарифінде қолжетімді (1590 ₸/ай).",
         "btn_show_text": "👁 Мәтінді көрсету",
         "listening_question_hidden": "🎧 *Тыңдалым · {subject}*\n\n_Жоғарыдағы дауыстық хабарламаны тыңдап, дұрыс аудармасын таңда_\n\n{opts}\n\n_{counter}_",
+        "flashcards_intro": "🗂 *Есте сақтауға арналған карточкалар*\n\nИнтервалды қайталаудың классикалық әдісі (SRS) — Anki сияқты.\n\nМен иероглифті көрсетемін, сен аудармасын ойыңда еске түсіресің, содан кейін «Жауапты көрсету» батырмасын басып, өзіңді шынайы бағалайсың. Білмеген карточкалар жиірек қайталанады.\n\nHSK деңгейін таңда 👇",
+        "flashcards_no_access": "🗂 Карточкалар режимі тек *Премиум + Тест* тарифінде қолжетімді (1590 ₸/ай).",
+        "flashcards_started": "🗂 Карточкаларды бастаймыз: *{label}*\n📊 Үйренілді: {learned}/{total}",
+        "btn_show_answer": "👁 Жауапты көрсету",
+        "flashcard_front": "🗂 *{subject}*\n\n{question}\n\n_Аудармасын еске түсіруге тырыс, содан кейін «Жауапты көрсету» батырмасын бас_",
+        "flashcard_back": "🗂 *{subject}*\n\n{question}\n\n✅ *Жауабы:* {answer}\n\n💡 {exp}\n\nБұл жауапты білдің бе?",
+        "btn_knew_it": "✅ Білдім",
+        "btn_didnt_know": "❌ Білмедім",
+        "flashcard_knew_feedback": "🔥 Тамаша! Бұл карточка {interval} күннен кейін қайта оралады.",
+        "flashcard_didnt_know_feedback": "💪 Ештеңе етпейді, 10 минуттан кейін қайталаймыз — есте қалады!",
+        "flashcards_progress": "📊 Үйренілді: {learned}/{total} карточка",
         "all_subjects_label": "Барлық деңгейлер",
         "stats_title": "📊 *HSK статистикасы*\n🎫 Тариф: {plan}{until}\n",
         "stats_no_answers": "\nӘлі жауап жоқ. *❓ Сұрақ алу* батырмасын бас 🚀",
@@ -397,9 +421,9 @@ def subject_to_display(canonical_subject, lang):
 def main_menu(lang="ru", is_admin=False):
     keyboard = [
         [KeyboardButton(t(lang, "btn_question")), KeyboardButton(t(lang, "btn_test"))],
-        [KeyboardButton(t(lang, "btn_listening")), KeyboardButton(t(lang, "btn_premium"))],
-        [KeyboardButton(t(lang, "btn_stats")), KeyboardButton(t(lang, "btn_help"))],
-        [KeyboardButton(t(lang, "btn_lang"))],
+        [KeyboardButton(t(lang, "btn_listening")), KeyboardButton(t(lang, "btn_flashcards"))],
+        [KeyboardButton(t(lang, "btn_premium")), KeyboardButton(t(lang, "btn_stats"))],
+        [KeyboardButton(t(lang, "btn_help")), KeyboardButton(t(lang, "btn_lang"))],
     ]
     if is_admin:
         keyboard.append([KeyboardButton("🛠 Админ-панель")])
@@ -436,9 +460,15 @@ def get_user(users, uid):
             "test_mode": False,
             "test_subject": None,
             "pending_payment": None,
+            "flashcards": {},        # "HSK 1:0" -> {"interval": 1, "due": "iso-date", "reps": 0, "ease": 2.5}
+            "flash_subject": None,   # выбранный уровень для флэшкарт ("all" или конкретный)
         }
     if "lang" not in users[uid]:
         users[uid]["lang"] = "ru"
+    if "flashcards" not in users[uid]:
+        users[uid]["flashcards"] = {}
+    if "flash_subject" not in users[uid]:
+        users[uid]["flash_subject"] = None
     return users[uid]
 
 def get_lang(user):
@@ -486,6 +516,89 @@ def pick_question(user, canonical_subject, lang):
     user["asked"][canonical_subject].append(idx)
     return idx, pool_lang[idx]
 
+# ══════════════════════════════════════════════
+# FLASHCARDS — SRS (упрощённый алгоритм SM-2, как в Anki)
+# ══════════════════════════════════════════════
+def flashcard_key(subject, idx):
+    return f"{subject}:{idx}"
+
+def all_flashcard_pairs(subjects):
+    """Возвращает список (subject, idx) для всех карточек в указанных уровнях."""
+    pairs = []
+    for s in subjects:
+        for i in range(len(QUESTIONS_RU[s])):
+            pairs.append((s, i))
+    return pairs
+
+def get_card_state(user, subject, idx):
+    key = flashcard_key(subject, idx)
+    return user["flashcards"].get(key)
+
+def init_card_state():
+    return {"interval": 0, "due": datetime.now(ALMATY_TZ).isoformat(), "reps": 0, "ease": 2.5}
+
+def update_card_state(user, subject, idx, knew_it):
+    """Обновляет состояние карточки по упрощённому SM-2: знал -> интервал растёт, не знал -> сброс на 10 минут."""
+    key = flashcard_key(subject, idx)
+    state = user["flashcards"].get(key, init_card_state())
+
+    if knew_it:
+        state["reps"] = state.get("reps", 0) + 1
+        ease = state.get("ease", 2.5)
+        if state["reps"] == 1:
+            interval_days = 1
+        elif state["reps"] == 2:
+            interval_days = 3
+        else:
+            interval_days = max(1, round(state.get("interval", 1) * ease))
+        state["interval"] = interval_days
+        state["ease"] = min(3.0, ease + 0.1)
+        due = datetime.now(ALMATY_TZ) + timedelta(days=interval_days)
+    else:
+        state["reps"] = 0
+        state["ease"] = max(1.3, state.get("ease", 2.5) - 0.2)
+        state["interval"] = 0
+        due = datetime.now(ALMATY_TZ) + timedelta(minutes=10)
+
+    state["due"] = due.isoformat()
+    user["flashcards"][key] = state
+
+def pick_flashcard(user, subjects):
+    """Выбирает следующую карточку: сначала просроченные (due <= now), иначе новую невиданную карточку."""
+    now = datetime.now(ALMATY_TZ)
+    pairs = all_flashcard_pairs(subjects)
+
+    due_pairs = []
+    new_pairs = []
+    for subject, idx in pairs:
+        state = get_card_state(user, subject, idx)
+        if state is None:
+            new_pairs.append((subject, idx))
+        else:
+            due_dt = datetime.fromisoformat(state["due"])
+            if due_dt.tzinfo is None:
+                due_dt = ALMATY_TZ.localize(due_dt)
+            if due_dt <= now:
+                due_pairs.append((subject, idx))
+
+    if due_pairs:
+        return random.choice(due_pairs)
+    if new_pairs:
+        return random.choice(new_pairs)
+    # Все карточки выучены и не просрочены — берём случайную для повторения
+    return random.choice(pairs) if pairs else (None, None)
+
+def flashcards_progress(user, subjects):
+    """Считает сколько карточек выучено (reps>=2) из общего числа в выбранных уровнях."""
+    pairs = all_flashcard_pairs(subjects)
+    total = len(pairs)
+    learned = 0
+    for subject, idx in pairs:
+        state = get_card_state(user, subject, idx)
+        if state and state.get("reps", 0) >= 2:
+            learned += 1
+    return learned, total
+
 def get_stats_text(user):
     lang = get_lang(user)
     plan_key = user.get("plan", "free") if is_premium(user) else "free"
@@ -518,6 +631,8 @@ def get_stats_text(user):
     if has_test_access(user):
         reset_daily_if_needed(user)
         lines.append(t(lang, "stats_test_today", today=user["test_today"], limit=TEST_DAILY_LIMIT))
+        flash_learned, flash_total = flashcards_progress(user, SUBJECTS)
+        lines.append(t(lang, "flashcards_progress", learned=flash_learned, total=flash_total))
     return "\n".join(lines)
 
 # ══════════════════════════════════════════════
@@ -680,6 +795,60 @@ async def send_listening_question(bot, chat_id):
     await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown",
                            reply_markup=InlineKeyboardMarkup(keyboard))
 
+# ══════════════════════════════════════════════
+# РЕЖИМ КАРТОЧЕК (FLASHCARDS / SRS)
+# ══════════════════════════════════════════════
+def flash_subjects_list(user):
+    """Список уровней (канонических) выбранных пользователем для карточек."""
+    fs = user.get("flash_subject")
+    if fs is None or fs == "all":
+        return SUBJECTS
+    return [fs]
+
+async def send_flashcard_front(bot, chat_id):
+    """Показывает лицевую сторону карточки — только вопрос (иероглиф/фразу), без ответа."""
+    users = load_users()
+    user = get_user(users, chat_id)
+    lang = get_lang(user)
+
+    if not has_test_access(user):
+        await bot.send_message(chat_id=chat_id, text=t(lang, "flashcards_no_access"), parse_mode="Markdown")
+        return
+
+    subjects = flash_subjects_list(user)
+    subject, idx = pick_flashcard(user, subjects)
+    if subject is None:
+        return
+
+    save_users(users)  # на случай если pick_flashcard ничего не поменял, но для консистентности
+
+    q_display = QUESTIONS_BY_LANG[lang][subject_to_display(subject, lang)][idx] if lang == "kk" else QUESTIONS_RU[subject][idx]
+    display_subject = subject_to_display(subject, lang)
+
+    # Озвучиваем китайскую часть — полезно и для карточек
+    await send_audio_for_question(bot, chat_id, q_display['q'], lang)
+
+    text = t(lang, "flashcard_front", subject=display_subject, question=q_display['q'])
+    keyboard = [[InlineKeyboardButton(t(lang, "btn_show_answer"), callback_data=f"flash_show|{subject}|{idx}")]]
+    await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown",
+                           reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def show_flashcards_menu(reply_func, user):
+    lang = get_lang(user)
+    if not has_test_access(user):
+        keyboard = [[InlineKeyboardButton(t(lang, "btn_buy_test"), callback_data="buy_premium_test")]]
+        await reply_func(t(lang, "flashcards_no_access"), parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    keyboard = [[InlineKeyboardButton(subject_to_display(s, lang), callback_data=f"flash_subject|{s}")] for s in SUBJECTS]
+    keyboard.append([InlineKeyboardButton(t(lang, "btn_all_subjects"), callback_data="flash_subject|all")])
+
+    await reply_func(
+        t(lang, "flashcards_intro"),
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -804,6 +973,9 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == t(lang, "btn_listening"):
         await show_listening_subject_menu(update.message.reply_text, user)
 
+    elif text == t(lang, "btn_flashcards"):
+        await show_flashcards_menu(update.message.reply_text, user)
+
     elif text == t(lang, "btn_premium"):
         await show_premium_menu(update.message.reply_text, user)
 
@@ -918,6 +1090,74 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lang = get_lang(user)
         q_display = QUESTIONS_BY_LANG[lang][subject_to_display(subject, lang)][idx] if lang == "kk" else QUESTIONS_RU[subject][idx]
         await query.message.reply_text(f"👁 {q_display['q']}")
+        return
+
+    if data.startswith("flash_subject|"):
+        _, subject = data.split("|", 1)
+        users = load_users()
+        user = get_user(users, query.from_user.id)
+        lang = get_lang(user)
+        if not has_test_access(user):
+            await query.message.reply_text(t(lang, "flashcards_no_access"), parse_mode="Markdown")
+            return
+        user["flash_subject"] = subject
+        save_users(users)
+        label = t(lang, "all_subjects_label") if subject == "all" else subject_to_display(subject, lang)
+        learned, total = flashcards_progress(user, flash_subjects_list(user))
+        await query.message.reply_text(t(lang, "flashcards_started", label=label, learned=learned, total=total), parse_mode="Markdown")
+        await send_flashcard_front(context.bot, query.from_user.id)
+        return
+
+    if data.startswith("flash_show|"):
+        _, subject, idx = data.split("|")
+        idx = int(idx)
+        users = load_users()
+        user = get_user(users, query.from_user.id)
+        lang = get_lang(user)
+        q_display = QUESTIONS_BY_LANG[lang][subject_to_display(subject, lang)][idx] if lang == "kk" else QUESTIONS_RU[subject][idx]
+        q_ru = QUESTIONS_RU[subject][idx]
+        correct_letter = q_ru['ans']
+        correct_full_text = next((opt for opt in q_display['opts'] if opt.startswith(correct_letter)), correct_letter)
+        display_subject = subject_to_display(subject, lang)
+
+        text = t(lang, "flashcard_back", subject=display_subject, question=q_display['q'], answer=correct_full_text, exp=q_display['exp'])
+        keyboard = [[
+            InlineKeyboardButton(t(lang, "btn_knew_it"), callback_data=f"flash_rate|{subject}|{idx}|know"),
+            InlineKeyboardButton(t(lang, "btn_didnt_know"), callback_data=f"flash_rate|{subject}|{idx}|forgot"),
+        ]]
+        await query.edit_message_reply_markup(reply_markup=None)
+        await context.bot.send_message(chat_id=query.from_user.id, text=text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    if data.startswith("flash_rate|"):
+        _, subject, idx, rating = data.split("|")
+        idx = int(idx)
+        chat_id = query.from_user.id
+        users = load_users()
+        user = get_user(users, chat_id)
+        lang = get_lang(user)
+
+        knew_it = (rating == "know")
+        update_card_state(user, subject, idx, knew_it)
+
+        st = user["stats"].setdefault(subject, {"correct": 0, "total": 0})
+        st["total"] += 1
+        if knew_it:
+            st["correct"] += 1
+        save_users(users)
+
+        key = flashcard_key(subject, idx)
+        new_state = user["flashcards"][key]
+        if knew_it:
+            feedback = t(lang, "flashcard_knew_feedback", interval=new_state["interval"])
+        else:
+            feedback = t(lang, "flashcard_didnt_know_feedback")
+
+        await query.edit_message_reply_markup(reply_markup=None)
+        await context.bot.send_message(chat_id=chat_id, text=feedback)
+
+        # Сразу следующая карточка
+        await send_flashcard_front(context.bot, chat_id)
         return
 
     if data in ("buy_standard", "buy_premium", "buy_premium_test"):
