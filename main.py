@@ -407,6 +407,12 @@ TEXTS = {
         "btn_test": "🧪 Режим теста",
         "btn_listening": "🎧 Аудирование",
         "btn_flashcards": "🗂 Карточки",
+        "btn_notify_levels": "🔔 Уровни уведомлений",
+        "notify_levels_intro": "🔔 *Уровни для уведомлений*\n\nВыбери, с каких уровней HSK хочешь получать вопросы по расписанию (можно выбрать несколько). Нажми «Готово», когда закончишь.\n\nТекущий выбор: {current}",
+        "notify_levels_all": "Все уровни",
+        "btn_notify_done": "✅ Готово",
+        "notify_levels_saved": "✅ Сохранено! Уведомления теперь будут приходить с уровней: *{levels}*",
+        "notify_levels_empty_fallback": "⚠️ Ты убрал все уровни — возвращаю на «Все уровни», чтобы уведомления продолжали приходить.",
         "btn_premium": "⭐️ Премиум",
         "btn_stats": "📊 Статистика",
         "btn_help": "ℹ️ Помощь",
@@ -486,6 +492,12 @@ TEXTS = {
         "btn_test": "🧪 Тест режимі",
         "btn_listening": "🎧 Тыңдалым",
         "btn_flashcards": "🗂 Карточкалар",
+        "btn_notify_levels": "🔔 Хабарландыру деңгейлері",
+        "notify_levels_intro": "🔔 *Хабарландыру деңгейлері*\n\nКесте бойынша қай HSK деңгейлерінен сұрақ алғың келетінін таңда (бірнешеуін таңдауға болады). Аяқтаған соң «Дайын» батырмасын бас.\n\nҚазіргі таңдау: {current}",
+        "notify_levels_all": "Барлық деңгейлер",
+        "btn_notify_done": "✅ Дайын",
+        "notify_levels_saved": "✅ Сақталды! Хабарландырулар енді мына деңгейлерден келеді: *{levels}*",
+        "notify_levels_empty_fallback": "⚠️ Барлық деңгейді алып тастадың — хабарландырулар тоқтамас үшін «Барлық деңгейлер» қалпына қайтарылды.",
         "btn_premium": "⭐️ Премиум",
         "btn_stats": "📊 Статистика",
         "btn_help": "ℹ️ Көмек",
@@ -921,7 +933,8 @@ def main_menu(lang="ru", is_admin=False):
         [KeyboardButton(t(lang, "btn_question")), KeyboardButton(t(lang, "btn_test"))],
         [KeyboardButton(t(lang, "btn_listening")), KeyboardButton(t(lang, "btn_flashcards"))],
         [KeyboardButton(t(lang, "btn_premium")), KeyboardButton(t(lang, "btn_stats"))],
-        [KeyboardButton(t(lang, "btn_help")), KeyboardButton(t(lang, "btn_lang"))],
+        [KeyboardButton(t(lang, "btn_notify_levels")), KeyboardButton(t(lang, "btn_help"))],
+        [KeyboardButton(t(lang, "btn_lang"))],
     ]
     if is_admin:
         keyboard.append([KeyboardButton("🛠 Админ-панель")])
@@ -967,6 +980,7 @@ def get_user(users, uid):
             "today_total": 0,        # счётчик всех ответов за сегодня
             "today_report_date": "",  # дата, на которую считаются today_correct/today_total
             "daily_report_sent_date": "",  # дата последней отправленной вечерней сводки
+            "notify_levels": None,   # список уровней для уведомлений, None = все уровни
         }
     if "lang" not in users[uid]:
         users[uid]["lang"] = "ru"
@@ -983,6 +997,8 @@ def get_user(users, uid):
         users[uid]["today_total"] = 0
         users[uid]["today_report_date"] = ""
         users[uid]["daily_report_sent_date"] = ""
+    if "notify_levels" not in users[uid]:
+        users[uid]["notify_levels"] = None
     return users[uid]
 
 def get_lang(user):
@@ -1218,6 +1234,14 @@ async def send_question(bot, chat_id, subject=None):
 
     premium = is_premium(user)
     available_subjects = SUBJECTS if premium else FREE_SUBJECTS
+
+    # Если пользователь выбрал конкретные уровни для уведомлений — используем их (с пересечением доступных)
+    notify_levels = user.get("notify_levels")
+    if notify_levels:
+        filtered = [s for s in notify_levels if s in available_subjects]
+        if filtered:
+            available_subjects = filtered
+
     if subject is None or subject not in available_subjects:
         subject = random.choice(available_subjects)
 
@@ -1487,8 +1511,31 @@ async def show_test_subject_menu(reply_func, user):
     )
 
 # ══════════════════════════════════════════════
-# ВЫБОР УРОВНЯ ДЛЯ АУДИРОВАНИЯ
+# ВЫБОР УРОВНЕЙ ДЛЯ УВЕДОМЛЕНИЙ (мультивыбор)
 # ══════════════════════════════════════════════
+def notify_levels_summary(user, lang):
+    levels = user.get("notify_levels")
+    if not levels:
+        return t(lang, "notify_levels_all")
+    return ", ".join(subject_to_display(s, lang) for s in levels)
+
+async def show_notify_levels_menu(reply_func, user):
+    lang = get_lang(user)
+    selected = user.get("notify_levels") or []
+
+    keyboard = []
+    for s in SUBJECTS:
+        mark = "✅ " if s in selected else "⬜ "
+        keyboard.append([InlineKeyboardButton(mark + subject_to_display(s, lang), callback_data=f"togglelevel|{s}")])
+    keyboard.append([InlineKeyboardButton(t(lang, "btn_notify_done"), callback_data="notifylevels_done")])
+
+    current = notify_levels_summary(user, lang)
+    await reply_func(
+        t(lang, "notify_levels_intro", current=current),
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
 async def show_listening_subject_menu(reply_func, user):
     lang = get_lang(user)
     if not has_test_access(user):
@@ -1555,6 +1602,9 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif text == t(lang, "btn_flashcards"):
         await show_flashcards_menu(update.message.reply_text, user)
+
+    elif text == t(lang, "btn_notify_levels"):
+        await show_notify_levels_menu(update.message.reply_text, user)
 
     elif text == t(lang, "btn_premium"):
         await show_premium_menu(update.message.reply_text, user)
@@ -1686,6 +1736,50 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         learned, total = flashcards_progress(user, flash_subjects_list(user))
         await query.message.reply_text(t(lang, "flashcards_started", label=label, learned=learned, total=total), parse_mode="Markdown")
         await send_flashcard_front(context.bot, query.from_user.id)
+        return
+
+    if data.startswith("togglelevel|"):
+        _, level = data.split("|", 1)
+        users = load_users()
+        user = get_user(users, query.from_user.id)
+        lang = get_lang(user)
+        selected = list(user.get("notify_levels") or [])
+        if level in selected:
+            selected.remove(level)
+        else:
+            selected.append(level)
+        user["notify_levels"] = selected if selected else None
+        save_users(users)
+
+        # Перерисовываем то же сообщение с обновлёнными чекбоксами
+        keyboard = []
+        for s in SUBJECTS:
+            mark = "✅ " if s in selected else "⬜ "
+            keyboard.append([InlineKeyboardButton(mark + subject_to_display(s, lang), callback_data=f"togglelevel|{s}")])
+        keyboard.append([InlineKeyboardButton(t(lang, "btn_notify_done"), callback_data="notifylevels_done")])
+        current = notify_levels_summary(user, lang)
+        try:
+            await query.edit_message_text(
+                t(lang, "notify_levels_intro", current=current),
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        except Exception:
+            pass  # сообщение не изменилось — Telegram иногда выдаёт безобидную ошибку
+        return
+
+    if data == "notifylevels_done":
+        users = load_users()
+        user = get_user(users, query.from_user.id)
+        lang = get_lang(user)
+        levels = user.get("notify_levels")
+        if not levels:
+            await query.message.reply_text(t(lang, "notify_levels_empty_fallback"))
+            levels_text = t(lang, "notify_levels_all")
+        else:
+            levels_text = ", ".join(subject_to_display(s, lang) for s in levels)
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text(t(lang, "notify_levels_saved", levels=levels_text), parse_mode="Markdown")
         return
 
     if data.startswith("flash_show|"):
