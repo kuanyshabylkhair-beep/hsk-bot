@@ -207,6 +207,15 @@ TEXTS = {
         "flashcard_knew_feedback": "🔥 Отлично! Эта карточка вернётся через {interval} дн.",
         "flashcard_didnt_know_feedback": "💪 Ничего, повторим через 10 минут — запомнится!",
         "flashcards_progress": "📊 Выучено: {learned}/{total} карточек",
+        "streak_line": "{emoji} Серия: *{streak} дн. подряд* (рекорд: {best})",
+        "streak_in_welcome": "\n{emoji} Серия: *{streak} дн. подряд!*",
+        "daily_report_title": "🌙 *Итоги дня*",
+        "daily_report_body": "✅ Правильных ответов: *{correct}/{total}*\n{emoji} Серия: *{streak} дн. подряд*\n\n{motivation}",
+        "daily_report_no_activity": "😴 Сегодня ты ещё не отвечал на вопросы.\n\nЗайди и реши хотя бы один, чтобы не потерять серию! {emoji}",
+        "motivation_great": "🔥 Отличный день! Так держать!",
+        "motivation_good": "💪 Хороший результат, продолжай в том же духе!",
+        "motivation_more": "📚 Завтра будет лучше — главное не останавливайся!",
+        "streak_lost_warning": "⚠️ Ты не занимался вчера — серия сброшена. Начни новую сегодня! 💪",
         "all_subjects_label": "Все уровни",
         "stats_title": "📊 *Статистика по HSK*\n🎫 Тариф: {plan}{until}\n",
         "stats_no_answers": "\nЕщё нет ответов. Нажми *❓ Получить вопрос* 🚀",
@@ -277,6 +286,15 @@ TEXTS = {
         "flashcard_knew_feedback": "🔥 Тамаша! Бұл карточка {interval} күннен кейін қайта оралады.",
         "flashcard_didnt_know_feedback": "💪 Ештеңе етпейді, 10 минуттан кейін қайталаймыз — есте қалады!",
         "flashcards_progress": "📊 Үйренілді: {learned}/{total} карточка",
+        "streak_line": "{emoji} Серия: *{streak} күн қатарынан* (рекорд: {best})",
+        "streak_in_welcome": "\n{emoji} Серия: *{streak} күн қатарынан!*",
+        "daily_report_title": "🌙 *Күн қорытындысы*",
+        "daily_report_body": "✅ Дұрыс жауаптар: *{correct}/{total}*\n{emoji} Серия: *{streak} күн қатарынан*\n\n{motivation}",
+        "daily_report_no_activity": "😴 Бүгін әлі сұрақтарға жауап бермедің.\n\nСеріяны жоғалтпау үшін кем дегенде бір сұрақты шеш! {emoji}",
+        "motivation_great": "🔥 Тамаша күн! Солай жалғастыр!",
+        "motivation_good": "💪 Жақсы нәтиже, осылай жалғастыр!",
+        "motivation_more": "📚 Ертең жақсырақ болады — басты нәрсе тоқтамау!",
+        "streak_lost_warning": "⚠️ Кеше жаттықпадың — серия нөлге түсті. Бүгін жаңасын баста! 💪",
         "all_subjects_label": "Барлық деңгейлер",
         "stats_title": "📊 *HSK статистикасы*\n🎫 Тариф: {plan}{until}\n",
         "stats_no_answers": "\nӘлі жауап жоқ. *❓ Сұрақ алу* батырмасын бас 🚀",
@@ -462,6 +480,13 @@ def get_user(users, uid):
             "pending_payment": None,
             "flashcards": {},        # "HSK 1:0" -> {"interval": 1, "due": "iso-date", "reps": 0, "ease": 2.5}
             "flash_subject": None,   # выбранный уровень для флэшкарт ("all" или конкретный)
+            "streak": 0,             # текущая серия дней подряд
+            "best_streak": 0,        # лучшая серия за всё время
+            "last_activity_date": "",  # дата последнего ответа (для подсчёта streak)
+            "today_correct": 0,      # счётчик правильных ответов за сегодня (для вечернего отчёта)
+            "today_total": 0,        # счётчик всех ответов за сегодня
+            "today_report_date": "",  # дата, на которую считаются today_correct/today_total
+            "daily_report_sent_date": "",  # дата последней отправленной вечерней сводки
         }
     if "lang" not in users[uid]:
         users[uid]["lang"] = "ru"
@@ -469,6 +494,15 @@ def get_user(users, uid):
         users[uid]["flashcards"] = {}
     if "flash_subject" not in users[uid]:
         users[uid]["flash_subject"] = None
+    if "streak" not in users[uid]:
+        users[uid]["streak"] = 0
+        users[uid]["best_streak"] = 0
+        users[uid]["last_activity_date"] = ""
+    if "today_correct" not in users[uid]:
+        users[uid]["today_correct"] = 0
+        users[uid]["today_total"] = 0
+        users[uid]["today_report_date"] = ""
+        users[uid]["daily_report_sent_date"] = ""
     return users[uid]
 
 def get_lang(user):
@@ -493,6 +527,49 @@ def reset_daily_if_needed(user):
     if user.get("last_test_date") != today:
         user["test_today"] = 0
         user["last_test_date"] = today
+
+def register_activity(user, is_correct):
+    """Вызывается при КАЖДОМ ответе пользователя в любом режиме.
+    Обновляет streak (серию дней подряд) и накопитель для вечернего отчёта."""
+    today_str = datetime.now(ALMATY_TZ).strftime("%Y-%m-%d")
+
+    # ── Счётчик за сегодня (для вечерней сводки) ──
+    if user.get("today_report_date") != today_str:
+        user["today_correct"] = 0
+        user["today_total"] = 0
+        user["today_report_date"] = today_str
+    user["today_total"] = user.get("today_total", 0) + 1
+    if is_correct:
+        user["today_correct"] = user.get("today_correct", 0) + 1
+
+    # ── Streak (серия дней подряд) ──
+    last_date_str = user.get("last_activity_date", "")
+    if last_date_str == today_str:
+        return  # сегодня уже была активность — streak не меняется повторно
+
+    today_date = datetime.now(ALMATY_TZ).date()
+    if last_date_str:
+        last_date = datetime.fromisoformat(last_date_str).date()
+        gap = (today_date - last_date).days
+        if gap == 1:
+            user["streak"] = user.get("streak", 0) + 1
+        elif gap >= 2:
+            user["streak"] = 1  # пропустили день(и) — серия начинается заново
+        # gap == 0 невозможен здесь, так как уже проверили last_date_str == today_str выше
+    else:
+        user["streak"] = 1  # самая первая активность
+
+    user["best_streak"] = max(user.get("best_streak", 0), user["streak"])
+    user["last_activity_date"] = today_str
+
+def streak_emoji(streak):
+    if streak >= 30:
+        return "💎"
+    if streak >= 14:
+        return "🔥🔥"
+    if streak >= 3:
+        return "🔥"
+    return "✨"
 
 def can_get_question(user):
     reset_daily_if_needed(user)
@@ -608,6 +685,10 @@ def get_stats_text(user):
         exp = datetime.fromisoformat(user["plan_until"])
         until = f" (до {exp.strftime('%d.%m.%Y')})" if lang == "ru" else f" ({exp.strftime('%d.%m.%Y')} дейін)"
     lines = [t(lang, "stats_title", plan=plan_label, until=until)]
+    streak = user.get("streak", 0)
+    if streak > 0:
+        lines.append(t(lang, "streak_line", emoji=streak_emoji(streak), streak=streak, best=user.get("best_streak", 0)))
+        lines.append("")
     total_c, total_t = 0, 0
     for s in SUBJECTS:
         st = user["stats"].get(s, {"correct": 0, "total": 0})
@@ -856,16 +937,35 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users = load_users()
     user = get_user(users, uid)
     user["name"] = name
-    save_users(users)
     lang = get_lang(user)
+
+    # Проверяем, не потерял ли пользователь серию (пропустил день и ещё не отвечал сегодня)
+    streak_lost = False
+    today_str = datetime.now(ALMATY_TZ).strftime("%Y-%m-%d")
+    last_date_str = user.get("last_activity_date", "")
+    if last_date_str and last_date_str != today_str and user.get("streak", 0) > 0:
+        last_date = datetime.fromisoformat(last_date_str).date()
+        gap = (datetime.now(ALMATY_TZ).date() - last_date).days
+        if gap >= 2:
+            user["streak"] = 0
+            streak_lost = True
+
+    save_users(users)
 
     if is_premium(user):
         plan_text = t(lang, "plan_premium", plan=PLAN_NAMES[user["plan"]])
     else:
         plan_text = t(lang, "plan_free")
 
+    welcome_text = t(lang, "welcome", name=name, plan_text=plan_text)
+    streak = user.get("streak", 0)
+    if streak > 0:
+        welcome_text += t(lang, "streak_in_welcome", emoji=streak_emoji(streak), streak=streak)
+    elif streak_lost:
+        welcome_text += "\n\n" + t(lang, "streak_lost_warning")
+
     await update.message.reply_text(
-        t(lang, "welcome", name=name, plan_text=plan_text),
+        welcome_text,
         parse_mode="Markdown",
         reply_markup=main_menu(lang, is_admin=(uid == ADMIN_ID))
     )
@@ -1144,6 +1244,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         st["total"] += 1
         if knew_it:
             st["correct"] += 1
+        register_activity(user, knew_it)
         save_users(users)
 
         key = flashcard_key(subject, idx)
@@ -1298,6 +1399,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         st["total"] += 1
         if is_correct:
             st["correct"] += 1
+        register_activity(user, is_correct)
         save_users(users)
 
         display_subject = subject_to_display(subject, lang)
@@ -1441,6 +1543,48 @@ async def broadcast(context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.warning(f"Ошибка {uid}: {e}")
 
+async def send_daily_report(context: ContextTypes.DEFAULT_TYPE):
+    """Вечерняя сводка: только тем, у кого была активность сегодня и кому ещё не отправляли отчёт сегодня.
+    Тем, кто не занимался сегодня вообще, отчёт не шлём — чтобы не спамить (это не уведомление-вопрос)."""
+    users = load_users()
+    today_str = datetime.now(ALMATY_TZ).strftime("%Y-%m-%d")
+
+    for uid, user in users.items():
+        if not user.get("broadcast", True):
+            continue
+        if user.get("daily_report_sent_date") == today_str:
+            continue
+        if user.get("today_report_date") != today_str or user.get("today_total", 0) == 0:
+            continue  # сегодня ещё не отвечал ни на один вопрос — не шлём отчёт
+
+        try:
+            lang = get_lang(user)
+            correct = user.get("today_correct", 0)
+            total = user.get("today_total", 0)
+            streak = user.get("streak", 0)
+
+            pct = round(correct / total * 100) if total > 0 else 0
+            if pct >= 80:
+                motivation = t(lang, "motivation_great")
+            elif pct >= 50:
+                motivation = t(lang, "motivation_good")
+            else:
+                motivation = t(lang, "motivation_more")
+
+            text = t(lang, "daily_report_title") + "\n\n" + t(
+                lang, "daily_report_body",
+                correct=correct, total=total,
+                emoji=streak_emoji(streak), streak=streak,
+                motivation=motivation
+            )
+            await context.bot.send_message(chat_id=int(uid), text=text, parse_mode="Markdown")
+            user["daily_report_sent_date"] = today_str
+            await asyncio.sleep(0.3)
+        except Exception as e:
+            logger.warning(f"Не удалось отправить дневной отчёт {uid}: {e}")
+
+    save_users(users)
+
 # ══════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════
@@ -1460,6 +1604,7 @@ def main():
     app.job_queue.run_daily(broadcast, time=dtime(15, 0, tzinfo=ALMATY_TZ))
     app.job_queue.run_daily(broadcast, time=dtime(18, 0, tzinfo=ALMATY_TZ))
     app.job_queue.run_daily(broadcast, time=dtime(21, 0, tzinfo=ALMATY_TZ))
+    app.job_queue.run_daily(send_daily_report, time=dtime(22, 0, tzinfo=ALMATY_TZ))
 
     logger.info("HSK бот запущен!")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
