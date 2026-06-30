@@ -3,12 +3,14 @@ import json
 import random
 import re
 import asyncio
+import io
 from pathlib import Path
 from datetime import time as dtime, datetime, timedelta
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 import pytz
+from gtts import gTTS
 
 TOKEN = "8936739861:AAFJ8d6dHIQDTErMP0Dwxi4Pdia0j1lBy28"
 ALMATY_TZ = pytz.timezone("Asia/Almaty")
@@ -42,6 +44,44 @@ TEST_DAILY_LIMIT = 50
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# ══════════════════════════════════════════════
+# TTS — ОЗВУЧКА КИТАЙСКОГО ТЕКСТА
+# ══════════════════════════════════════════════
+CHINESE_CHAR_PATTERN = re.compile(r'[\u4e00-\u9fff]+')
+
+def extract_chinese(text):
+    """Извлекает все китайские иероглифы из строки вопроса (например, из '你好 (nǐ hǎo)?')."""
+    matches = CHINESE_CHAR_PATTERN.findall(text)
+    return "".join(matches)
+
+def generate_audio_bytes(chinese_text):
+    """Генерирует mp3-аудио озвучки китайского текста через gTTS. Возвращает BytesIO или None при ошибке."""
+    if not chinese_text:
+        return None
+    try:
+        tts = gTTS(text=chinese_text, lang='zh-CN')
+        buf = io.BytesIO()
+        tts.write_to_fp(buf)
+        buf.seek(0)
+        buf.name = "audio.mp3"
+        return buf
+    except Exception as e:
+        logger.warning(f"TTS generation failed for '{chinese_text}': {e}")
+        return None
+
+async def send_audio_for_question(bot, chat_id, question_text, lang):
+    """Озвучивает китайскую часть вопроса и отправляет как голосовое сообщение."""
+    chinese = extract_chinese(question_text)
+    if not chinese:
+        return
+    audio = generate_audio_bytes(chinese)
+    if audio:
+        caption = "🎧 Прослушай произношение" if lang == "ru" else "🎧 Айтылымды тыңда"
+        try:
+            await bot.send_voice(chat_id=chat_id, voice=audio, caption=caption)
+        except Exception as e:
+            logger.warning(f"Не удалось отправить аудио {chat_id}: {e}")
 
 QUESTIONS_KK = {
     "HSK 1": [
@@ -125,6 +165,7 @@ TEXTS = {
     "ru": {
         "btn_question": "❓ Получить вопрос",
         "btn_test": "🧪 Режим теста",
+        "btn_listening": "🎧 Аудирование",
         "btn_premium": "⭐️ Премиум",
         "btn_stats": "📊 Статистика",
         "btn_help": "ℹ️ Помощь",
@@ -149,6 +190,11 @@ TEXTS = {
         "test_choose_subject": "🧪 *Режим теста*\n\nОсталось вопросов сегодня: *{remaining}/{limit}*\n\nВыбери уровень HSK 👇",
         "btn_all_subjects": "🎲 Все уровни вперемешку",
         "test_started": "🧪 Начинаем тест по уровню: *{label}*",
+        "listening_started": "🎧 Начинаем аудирование по уровню: *{label}*",
+        "listening_intro": "🎧 *Аудирование*\n\nЯ присылаю голосовое сообщение — слушай произношение и выбирай правильный перевод. Текст иероглифов скрыт, чтобы тренировать именно слух.\n\nВыбери уровень HSK 👇",
+        "listening_no_access": "🎧 Режим аудирования доступен только в тарифе *Премиум + Тест* (1590 ₸/мес).",
+        "btn_show_text": "👁 Показать текст",
+        "listening_question_hidden": "🎧 *Аудирование · {subject}*\n\n_Прослушай голосовое сообщение выше и выбери правильный перевод_\n\n{opts}\n\n_{counter}_",
         "all_subjects_label": "Все уровни",
         "stats_title": "📊 *Статистика по HSK*\n🎫 Тариф: {plan}{until}\n",
         "stats_no_answers": "\nЕщё нет ответов. Нажми *❓ Получить вопрос* 🚀",
@@ -177,6 +223,7 @@ TEXTS = {
     "kk": {
         "btn_question": "❓ Сұрақ алу",
         "btn_test": "🧪 Тест режимі",
+        "btn_listening": "🎧 Тыңдалым",
         "btn_premium": "⭐️ Премиум",
         "btn_stats": "📊 Статистика",
         "btn_help": "ℹ️ Көмек",
@@ -201,6 +248,11 @@ TEXTS = {
         "test_choose_subject": "🧪 *Тест режимі*\n\nБүгін қалған сұрақтар: *{remaining}/{limit}*\n\nHSK деңгейін таңда 👇",
         "btn_all_subjects": "🎲 Барлық деңгейлер аралас",
         "test_started": "🧪 Тестті бастаймыз: *{label}*",
+        "listening_started": "🎧 Тыңдалымды бастаймыз: *{label}*",
+        "listening_intro": "🎧 *Тыңдалым*\n\nМен дауыстық хабарлама жіберемін — айтылымды тыңдап, дұрыс аудармасын таңда. Иероглифтер мәтіні жасырын, тек тыңдау қабілетін жаттықтыру үшін.\n\nHSK деңгейін таңда 👇",
+        "listening_no_access": "🎧 Тыңдалым режимі тек *Премиум + Тест* тарифінде қолжетімді (1590 ₸/ай).",
+        "btn_show_text": "👁 Мәтінді көрсету",
+        "listening_question_hidden": "🎧 *Тыңдалым · {subject}*\n\n_Жоғарыдағы дауыстық хабарламаны тыңдап, дұрыс аудармасын таңда_\n\n{opts}\n\n_{counter}_",
         "all_subjects_label": "Барлық деңгейлер",
         "stats_title": "📊 *HSK статистикасы*\n🎫 Тариф: {plan}{until}\n",
         "stats_no_answers": "\nӘлі жауап жоқ. *❓ Сұрақ алу* батырмасын бас 🚀",
@@ -345,8 +397,9 @@ def subject_to_display(canonical_subject, lang):
 def main_menu(lang="ru", is_admin=False):
     keyboard = [
         [KeyboardButton(t(lang, "btn_question")), KeyboardButton(t(lang, "btn_test"))],
-        [KeyboardButton(t(lang, "btn_premium")), KeyboardButton(t(lang, "btn_stats"))],
-        [KeyboardButton(t(lang, "btn_help")), KeyboardButton(t(lang, "btn_lang"))],
+        [KeyboardButton(t(lang, "btn_listening")), KeyboardButton(t(lang, "btn_premium"))],
+        [KeyboardButton(t(lang, "btn_stats")), KeyboardButton(t(lang, "btn_help"))],
+        [KeyboardButton(t(lang, "btn_lang"))],
     ]
     if is_admin:
         keyboard.append([KeyboardButton("🛠 Админ-панель")])
@@ -501,6 +554,10 @@ async def send_question(bot, chat_id, subject=None):
     limit = PLAN_NOTIFY_LIMIT.get(plan_key, 1)
     remaining = limit - user["questions_today"]
     display_subject = subject_to_display(subject, lang)
+
+    # Озвучиваем китайскую часть вопроса перед текстом
+    await send_audio_for_question(bot, chat_id, q['q'], lang)
+
     text = f"📚 *{display_subject}*\n\n❓ {q['q']}\n\n" + "\n".join(q["opts"])
     text += f"\n\n_{t(lang, 'remaining')}: {remaining}_"
 
@@ -544,6 +601,10 @@ async def send_test_question(bot, chat_id):
 
     remaining = TEST_DAILY_LIMIT - user["test_today"]
     display_subject = subject_to_display(chosen_subject, lang)
+
+    # Озвучиваем китайскую часть вопроса перед текстом
+    await send_audio_for_question(bot, chat_id, q['q'], lang)
+
     text = f"🧪 *Тест · {display_subject}*\n\n❓ {q['q']}\n\n" + "\n".join(q["opts"])
     counter_label = "Вопрос" if lang == "ru" else "Сұрақ"
     today_word = "сегодня" if lang == "ru" else "бүгін"
@@ -559,8 +620,67 @@ async def send_test_question(bot, chat_id):
                            reply_markup=InlineKeyboardMarkup(keyboard))
 
 # ══════════════════════════════════════════════
-# СТАРТ
+# РЕЖИМ АУДИРОВАНИЯ — текст скрыт, только голос + варианты
 # ══════════════════════════════════════════════
+async def send_listening_question(bot, chat_id):
+    users = load_users()
+    user = get_user(users, chat_id)
+    lang = get_lang(user)
+
+    if not has_test_access(user):
+        await bot.send_message(chat_id=chat_id, text=t(lang, "listening_no_access"), parse_mode="Markdown")
+        return
+
+    if not can_get_test_question(user):
+        user["test_mode"] = False
+        save_users(users)
+        await bot.send_message(chat_id=chat_id, text=t(lang, "test_limit_reached", limit=TEST_DAILY_LIMIT))
+        return
+
+    subject = user.get("test_subject")
+    if subject == "all" or subject not in SUBJECTS:
+        chosen_subject = random.choice(SUBJECTS)
+    else:
+        chosen_subject = subject
+
+    idx, q = pick_question(user, chosen_subject, lang)
+    user["test_today"] = user.get("test_today", 0) + 1
+    reset_daily_if_needed(user)
+    save_users(users)
+
+    remaining = TEST_DAILY_LIMIT - user["test_today"]
+    display_subject = subject_to_display(chosen_subject, lang)
+
+    # Отправляем ТОЛЬКО голос — без текста китайской фразы в подписи
+    chinese = extract_chinese(q['q'])
+    audio = generate_audio_bytes(chinese)
+    if audio:
+        caption = "🎧 Слушай внимательно..." if lang == "ru" else "🎧 Мұқият тыңда..."
+        try:
+            await bot.send_voice(chat_id=chat_id, voice=audio, caption=caption)
+        except Exception as e:
+            logger.warning(f"Не удалось отправить аудио {chat_id}: {e}")
+
+    counter_label = "Вопрос" if lang == "ru" else "Сұрақ"
+    today_word = "сегодня" if lang == "ru" else "бүгін"
+    counter = f"{counter_label} {user['test_today']}/{TEST_DAILY_LIMIT} {today_word}"
+    opts_text = "\n".join(q["opts"])
+
+    text = t(lang, "listening_question_hidden", subject=display_subject, opts=opts_text, counter=counter)
+
+    keyboard = [
+        [
+            InlineKeyboardButton("A", callback_data=f"ans|{chat_id}|{chosen_subject}|{idx}|A|listen"),
+            InlineKeyboardButton("B", callback_data=f"ans|{chat_id}|{chosen_subject}|{idx}|B|listen"),
+            InlineKeyboardButton("C", callback_data=f"ans|{chat_id}|{chosen_subject}|{idx}|C|listen"),
+            InlineKeyboardButton("D", callback_data=f"ans|{chat_id}|{chosen_subject}|{idx}|D|listen"),
+        ],
+        [InlineKeyboardButton(t(lang, "btn_show_text"), callback_data=f"showtext|{chosen_subject}|{idx}")],
+    ]
+    await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown",
+                           reply_markup=InlineKeyboardMarkup(keyboard))
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     name = update.effective_user.first_name or "Ученик"
@@ -618,6 +738,31 @@ async def show_test_subject_menu(reply_func, user):
     )
 
 # ══════════════════════════════════════════════
+# ВЫБОР УРОВНЯ ДЛЯ АУДИРОВАНИЯ
+# ══════════════════════════════════════════════
+async def show_listening_subject_menu(reply_func, user):
+    lang = get_lang(user)
+    if not has_test_access(user):
+        keyboard = [[InlineKeyboardButton(t(lang, "btn_buy_test"), callback_data="buy_premium_test")]]
+        await reply_func(t(lang, "listening_no_access"), parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    reset_daily_if_needed(user)
+    remaining = TEST_DAILY_LIMIT - user["test_today"]
+    if remaining <= 0:
+        await reply_func(t(lang, "test_limit_reached", limit=TEST_DAILY_LIMIT))
+        return
+
+    keyboard = [[InlineKeyboardButton(subject_to_display(s, lang), callback_data=f"listen_subject|{s}")] for s in SUBJECTS]
+    keyboard.append([InlineKeyboardButton(t(lang, "btn_all_subjects"), callback_data="listen_subject|all")])
+
+    await reply_func(
+        t(lang, "listening_intro"),
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+# ══════════════════════════════════════════════
 # МЕНЮ — ОБРАБОТЧИК КНОПОК
 # ══════════════════════════════════════════════
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -655,6 +800,9 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif text == t(lang, "btn_test"):
         await show_test_subject_menu(update.message.reply_text, user)
+
+    elif text == t(lang, "btn_listening"):
+        await show_listening_subject_menu(update.message.reply_text, user)
 
     elif text == t(lang, "btn_premium"):
         await show_premium_menu(update.message.reply_text, user)
@@ -744,6 +892,32 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         label = t(lang, "all_subjects_label") if subject == "all" else subject_to_display(subject, lang)
         await query.message.reply_text(t(lang, "test_started", label=label), parse_mode="Markdown")
         await send_test_question(context.bot, query.from_user.id)
+        return
+
+    if data.startswith("listen_subject|"):
+        _, subject = data.split("|", 1)
+        users = load_users()
+        user = get_user(users, query.from_user.id)
+        lang = get_lang(user)
+        if not has_test_access(user):
+            await query.message.reply_text(t(lang, "listening_no_access"), parse_mode="Markdown")
+            return
+        user["test_subject"] = subject
+        user["test_mode"] = True
+        save_users(users)
+        label = t(lang, "all_subjects_label") if subject == "all" else subject_to_display(subject, lang)
+        await query.message.reply_text(t(lang, "listening_started", label=label), parse_mode="Markdown")
+        await send_listening_question(context.bot, query.from_user.id)
+        return
+
+    if data.startswith("showtext|"):
+        _, subject, idx = data.split("|")
+        idx = int(idx)
+        users = load_users()
+        user = get_user(users, query.from_user.id)
+        lang = get_lang(user)
+        q_display = QUESTIONS_BY_LANG[lang][subject_to_display(subject, lang)][idx] if lang == "kk" else QUESTIONS_RU[subject][idx]
+        await query.message.reply_text(f"👁 {q_display['q']}")
         return
 
     if data in ("buy_standard", "buy_premium", "buy_premium_test"):
@@ -904,6 +1078,16 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif has_test_access(user):
                 lang2 = get_lang(user)
                 await context.bot.send_message(chat_id=chat_id, text=t(lang2, "test_finished", limit=TEST_DAILY_LIMIT))
+
+        elif mode == "listen":
+            users = load_users()
+            user = get_user(users, chat_id)
+            if has_test_access(user) and can_get_test_question(user):
+                await send_listening_question(context.bot, chat_id)
+            elif has_test_access(user):
+                lang2 = get_lang(user)
+                await context.bot.send_message(chat_id=chat_id, text=t(lang2, "test_finished", limit=TEST_DAILY_LIMIT))
+
 
 # ══════════════════════════════════════════════
 # АДМИН КОМАНДЫ
