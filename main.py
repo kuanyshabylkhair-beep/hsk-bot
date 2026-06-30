@@ -930,11 +930,9 @@ def subject_to_display(canonical_subject, lang):
 # ══════════════════════════════════════════════
 def main_menu(lang="ru", is_admin=False):
     keyboard = [
-        [KeyboardButton(t(lang, "btn_question")), KeyboardButton(t(lang, "btn_test"))],
-        [KeyboardButton(t(lang, "btn_listening")), KeyboardButton(t(lang, "btn_flashcards"))],
-        [KeyboardButton(t(lang, "btn_premium")), KeyboardButton(t(lang, "btn_stats"))],
-        [KeyboardButton(t(lang, "btn_notify_levels")), KeyboardButton(t(lang, "btn_help"))],
-        [KeyboardButton(t(lang, "btn_lang"))],
+        [KeyboardButton(t(lang, "btn_question")), KeyboardButton(t(lang, "btn_test")), KeyboardButton(t(lang, "btn_listening"))],
+        [KeyboardButton(t(lang, "btn_flashcards")), KeyboardButton(t(lang, "btn_premium")), KeyboardButton(t(lang, "btn_stats"))],
+        [KeyboardButton(t(lang, "btn_notify_levels")), KeyboardButton(t(lang, "btn_help")), KeyboardButton(t(lang, "btn_lang"))],
     ]
     if is_admin:
         keyboard.append([KeyboardButton("🛠 Админ-панель")])
