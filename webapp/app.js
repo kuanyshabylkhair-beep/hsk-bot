@@ -85,6 +85,10 @@ const I18N = {
     stat_streak: "Серия дней",
     stat_best: "Рекорд",
     stat_cards: "Карточек выучено",
+    cert_btn: "Скачать сертификат",
+    cert_sending: "Отправляем…",
+    cert_hint: "PDF-сертификат придёт отдельным сообщением в этот чат — оттуда его можно сохранить",
+    cert_sent: "Сертификат отправлен в чат!",
     toast_saved: "Сохранено",
     err_generic: "Что-то пошло не так, попробуй ещё раз",
     q_today: "сегодня",
@@ -149,6 +153,10 @@ const I18N = {
     stat_streak: "Серия күндер",
     stat_best: "Рекорд",
     stat_cards: "Карточка үйренілді",
+    cert_btn: "Сертификатты жүктеу",
+    cert_sending: "Жіберілуде…",
+    cert_hint: "PDF-сертификат осы чатқа жеке хабарлама ретінде келеді — одан сақтауға болады",
+    cert_sent: "Сертификат чатқа жіберілді!",
     toast_saved: "Сақталды",
     err_generic: "Бірдеңе дұрыс болмады, қайталап көр",
     q_today: "бүгін",
@@ -597,6 +605,10 @@ function renderStats() {
         ${p.has_test_access ? `<div class="stat-chip"><div class="v">${p.flash_learned}/${p.flash_total}</div><div class="l">${t("stat_cards")}</div></div>` : ""}
       </div>
       ${bars}
+      <button class="btn btn-gold" style="margin-top:20px;" data-action="get_certificate" ${state.certLoading ? "disabled" : ""}>
+        🎓 ${state.certLoading ? t("cert_sending") : t("cert_btn")}
+      </button>
+      <div style="font-size:11.5px;color:var(--paper-faint);text-align:center;margin-top:10px;">${t("cert_hint")}</div>
     </div>`;
 }
 
@@ -839,6 +851,26 @@ async function openStats() {
   go("stats");
 }
 
+async function getCertificate() {
+  if (state.certLoading) return;
+  haptic("light");
+  state.certLoading = true;
+  render();
+  try {
+    await apiPost("/api/certificate", {});
+    haptic("success");
+    showToast(t("cert_sent"));
+    if (tg && tg.close) {
+      // ничего не делаем — просто оставляем пользователя в приложении, чтобы он увидел тост
+    }
+  } catch (e) {
+    haptic("error");
+    showToast(t("err_generic"));
+  }
+  state.certLoading = false;
+  render();
+}
+
 async function refreshProfile() {
   try {
     state.profile = await apiGet("/api/profile");
@@ -870,6 +902,7 @@ document.getElementById("app").addEventListener("click", (e) => {
     case "cancel_buy": cancelBuy(); break;
     case "mark_paid": markPaid(); break;
     case "open_stats": openStats(); break;
+    case "get_certificate": getCertificate(); break;
   }
 });
 
