@@ -7,10 +7,11 @@ import io
 from pathlib import Path
 from datetime import time as dtime, datetime, timedelta
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo, MenuButtonWebApp
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 import pytz
 from gtts import gTTS
+import uvicorn
 
 TOKEN = "8936739861:AAFJ8d6dHIQDTErMP0Dwxi4Pdia0j1lBy28"
 ALMATY_TZ = pytz.timezone("Asia/Almaty")
@@ -3240,26 +3241,469 @@ async def send_daily_report(context: ContextTypes.DEFAULT_TYPE):
 # ══════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════
+# MINI APP — FastAPI backend (работает в одном процессе с ботом)
+# ══════════════════════════════════════════════════════════════
+from contextlib import asynccontextmanager
+import hashlib
+import hmac
+import urllib.parse
+import os
+
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+
+WEBAPP_DIR = Path(__file__).parent / "webapp"
+telegram_app: Application | None = None  # ссылка на бота, чтобы API могло слать сообщения (уведомление админу об оплате)
+
+
+def validate_init_data(init_data: str, max_age_seconds: int = 86400):
+    """Проверяет подлинность Telegram WebApp initData (официальный алгоритм Telegram).
+    Возвращает распарсенные данные пользователя или None, если подпись неверна/просрочена."""
+    if not init_data:
+        return None
+    try:
+        parsed = dict(urllib.parse.parse_qsl(init_data, strict_parsing=True))
+    except ValueError:
+        return None
+    received_hash = parsed.pop("hash", None)
+    if not received_hash:
+        return None
+    data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(parsed.items()))
+    secret_key = hmac.new(b"WebAppData", TOKEN.encode(), hashlib.sha256).digest()
+    computed_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(computed_hash, received_hash):
+        return None
+    try:
+        auth_date = int(parsed.get("auth_date", 0))
+    except ValueError:
+        return None
+    if max_age_seconds and (datetime.now().timestamp() - auth_date) > max_age_seconds:
+        return None
+    user_json = parsed.get("user")
+    user = json.loads(user_json) if user_json else None
+    if not user or "id" not in user:
+        return None
+    return user
+
+
+def auth_user(request: Request):
+    """Достаёт и проверяет initData из заголовка X-Init-Data, возвращает (uid, first_name)."""
+    init_data = request.headers.get("X-Init-Data", "")
+    user = validate_init_data(init_data)
+    # DEV-обход: если бот ещё не открыт из Telegram (например, локальный тест) — не пускаем без подписи.
+    if not user:
+        raise HTTPException(status_code=401, detail="invalid_telegram_auth")
+    return user["id"], user.get("first_name") or "Ученик"
+
+
+@asynccontextmanager
+async def lifespan(fastapi_app: FastAPI):
+    global telegram_app
+    telegram_app = Application.builder().token(TOKEN).build()
+
+    telegram_app.add_handler(CommandHandler("start", start))
+    telegram_app.add_handler(CommandHandler("activate", activate_cmd))
+    telegram_app.add_handler(CommandHandler("users", users_cmd))
+    telegram_app.add_handler(CommandHandler("refresh_menu", refresh_menu_cmd))
+    telegram_app.add_handler(CommandHandler("admin", admin_panel_cmd))
+    telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_handler))
+    telegram_app.add_handler(CallbackQueryHandler(button_callback))
+
+    telegram_app.job_queue.run_daily(broadcast, time=dtime(8, 0, tzinfo=ALMATY_TZ))
+    telegram_app.job_queue.run_daily(broadcast, time=dtime(12, 0, tzinfo=ALMATY_TZ))
+    telegram_app.job_queue.run_daily(broadcast, time=dtime(15, 0, tzinfo=ALMATY_TZ))
+    telegram_app.job_queue.run_daily(broadcast, time=dtime(18, 0, tzinfo=ALMATY_TZ))
+    telegram_app.job_queue.run_daily(broadcast, time=dtime(21, 0, tzinfo=ALMATY_TZ))
+    telegram_app.job_queue.run_daily(send_daily_report, time=dtime(22, 0, tzinfo=ALMATY_TZ))
+
+    await telegram_app.initialize()
+    await telegram_app.start()
+    await telegram_app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+
+    # Настраиваем кнопку меню Telegram, открывающую Mini App (если задан публичный URL)
+    webapp_url = os.environ.get("WEBAPP_URL", "").strip()
+    if webapp_url:
+        try:
+            await telegram_app.bot.set_chat_menu_button(
+                menu_button=MenuButtonWebApp(text="🚀 Приложение", web_app=WebAppInfo(url=webapp_url))
+            )
+            logger.info(f"Mini App меню-кнопка установлена: {webapp_url}")
+        except Exception as e:
+            logger.warning(f"Не удалось установить меню-кнопку Mini App: {e}")
+    else:
+        logger.warning("WEBAPP_URL не задан — кнопка Mini App в меню не установлена")
+
+    logger.info("HSK бот запущен (polling) + Mini App API готовы")
+    yield
+
+    await telegram_app.updater.stop()
+    await telegram_app.stop()
+    await telegram_app.shutdown()
+
+
+api = FastAPI(lifespan=lifespan)
+api.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ── Профиль ──
+@api.get("/api/profile")
+async def api_profile(request: Request):
+    uid, name = auth_user(request)
+    users = load_users()
+    user = get_user(users, uid)
+    if name:
+        user["name"] = name
+    save_users(users)
+    lang = get_lang(user)
+    reset_daily_if_needed(user)
+
+    premium = is_premium(user)
+    plan_key = user.get("plan", "free") if premium else "free"
+    plan_until = None
+    if premium and user.get("plan_until"):
+        plan_until = datetime.fromisoformat(user["plan_until"]).strftime("%d.%m.%Y")
+
+    stats = {s: user["stats"].get(s, {"correct": 0, "total": 0}) for s in SUBJECTS}
+    flash_learned, flash_total = flashcards_progress(user, SUBJECTS) if has_test_access(user) else (0, 0)
+
+    return {
+        "uid": uid,
+        "name": user.get("name", name),
+        "lang": lang,
+        "plan": plan_key,
+        "plan_name": PLAN_NAMES.get(plan_key, "Бесплатно" if lang == "ru" else "Тегін"),
+        "plan_until": plan_until,
+        "is_premium": premium,
+        "has_test_access": has_test_access(user),
+        "is_admin": uid == ADMIN_ID,
+        "subjects": [{"key": s, "label": subject_to_display(s, lang)} for s in SUBJECTS],
+        "free_subjects": FREE_SUBJECTS,
+        "stats": stats,
+        "streak": user.get("streak", 0),
+        "best_streak": user.get("best_streak", 0),
+        "streak_emoji": streak_emoji(user.get("streak", 0)),
+        "questions_today": user.get("questions_today", 0),
+        "questions_limit": PLAN_NOTIFY_LIMIT.get(plan_key, 1),
+        "test_today": user.get("test_today", 0),
+        "test_limit": TEST_DAILY_LIMIT,
+        "flash_learned": flash_learned,
+        "flash_total": flash_total,
+        "notify_levels": user.get("notify_levels"),
+    }
+
+
+@api.post("/api/lang")
+async def api_set_lang(request: Request):
+    uid, _ = auth_user(request)
+    body = await request.json()
+    new_lang = body.get("lang")
+    if new_lang not in ("ru", "kk"):
+        raise HTTPException(400, "bad_lang")
+    users = load_users()
+    user = get_user(users, uid)
+    user["lang"] = new_lang
+    save_users(users)
+    return {"ok": True}
+
+
+@api.post("/api/notify_levels")
+async def api_set_notify_levels(request: Request):
+    uid, _ = auth_user(request)
+    body = await request.json()
+    levels = body.get("levels")
+    if levels is not None:
+        levels = [s for s in levels if s in SUBJECTS]
+        if not levels:
+            levels = None
+    users = load_users()
+    user = get_user(users, uid)
+    user["notify_levels"] = levels
+    save_users(users)
+    return {"ok": True, "notify_levels": levels}
+
+
+# ── Вопросы (обычный режим / тест / чтение / аудирование) ──
+def _question_payload(subject, idx, q, lang, mode, include_text=True):
+    display_subject = subject_to_display(subject, lang)
+    payload = {
+        "subject": subject,
+        "subject_display": display_subject,
+        "idx": idx,
+        "mode": mode,
+        "options": q["opts"],
+    }
+    if include_text:
+        payload["text"] = q["q"]
+    if mode in ("normal", "test", "reading"):
+        payload["audio_url"] = f"/api/audio?subject={urllib.parse.quote(subject)}&idx={idx}&pool={'reading' if mode == 'reading' else 'vocab'}"
+    elif mode == "listen":
+        payload["audio_url"] = f"/api/audio?subject={urllib.parse.quote(subject)}&idx={idx}&pool=vocab"
+    return payload
+
+
+@api.get("/api/question")
+async def api_question(request: Request, mode: str = "normal", level: str = "all"):
+    uid, _ = auth_user(request)
+    users = load_users()
+    user = get_user(users, uid)
+    lang = get_lang(user)
+
+    if mode == "normal":
+        if not can_get_question(user):
+            plan_key = user.get("plan", "free") if is_premium(user) else "free"
+            raise HTTPException(429, detail={"reason": "limit", "limit": PLAN_NOTIFY_LIMIT.get(plan_key, 1)})
+        allowed = subjects_for_lang(lang) if is_premium(user) else FREE_SUBJECTS
+        allowed_canonical = [subject_to_canonical(s, lang) for s in allowed]
+        chosen_subject = level if level in allowed_canonical else random.choice(allowed_canonical)
+        idx, q = pick_question(user, chosen_subject, lang)
+        user["questions_today"] = user.get("questions_today", 0) + 1
+        save_users(users)
+        return _question_payload(chosen_subject, idx, q, lang, "normal")
+
+    # test / reading / listen — все требуют тариф Премиум+Тест и общий дневной лимит
+    if not has_test_access(user):
+        raise HTTPException(403, detail={"reason": "no_test_access"})
+    if not can_get_test_question(user):
+        raise HTTPException(429, detail={"reason": "test_limit", "limit": TEST_DAILY_LIMIT})
+
+    chosen_subject = level if level in SUBJECTS else random.choice(SUBJECTS)
+
+    if mode == "reading":
+        idx, q = pick_reading_question(user, chosen_subject, lang)
+    else:
+        idx, q = pick_question(user, chosen_subject, lang)
+
+    user["test_today"] = user.get("test_today", 0) + 1
+    reset_daily_if_needed(user)
+    save_users(users)
+
+    include_text = mode != "listen"
+    payload = _question_payload(chosen_subject, idx, q, lang, mode, include_text=include_text)
+    payload["counter"] = {"today": user["test_today"], "limit": TEST_DAILY_LIMIT}
+    return payload
+
+
+@api.get("/api/audio")
+async def api_audio(request: Request, subject: str, idx: int, pool: str = "vocab"):
+    auth_user(request)  # просто проверяем подлинность запроса
+    source = READING_RU if pool == "reading" else QUESTIONS_RU
+    if subject not in source or idx < 0 or idx >= len(source[subject]):
+        raise HTTPException(404, "not_found")
+    chinese = extract_chinese(source[subject][idx]["q"])
+    if not chinese:
+        raise HTTPException(404, "no_audio")
+    audio = generate_audio_bytes(chinese)
+    if not audio:
+        raise HTTPException(500, "tts_failed")
+    return StreamingResponse(io.BytesIO(audio), media_type="audio/mpeg")
+
+
+@api.post("/api/answer")
+async def api_answer(request: Request):
+    uid, name = auth_user(request)
+    body = await request.json()
+    subject = body.get("subject")
+    idx = body.get("idx")
+    mode = body.get("mode", "normal")
+    chosen = body.get("chosen")
+    if subject not in SUBJECTS or not isinstance(idx, int) or chosen not in ("A", "B", "C", "D"):
+        raise HTTPException(400, "bad_request")
+
+    users = load_users()
+    user = get_user(users, uid)
+    lang = get_lang(user)
+
+    pool_ru = READING_RU if mode == "reading" else QUESTIONS_RU
+    pool_lang = READING_BY_LANG if mode == "reading" else QUESTIONS_BY_LANG
+    if idx < 0 or idx >= len(pool_ru.get(subject, [])):
+        raise HTTPException(400, "bad_idx")
+
+    q_ru = pool_ru[subject][idx]
+    q_display = pool_lang[lang][subject_to_display(subject, lang)][idx] if lang == "kk" else q_ru
+    is_correct = chosen == q_ru["ans"]
+
+    st = user["stats"].setdefault(subject, {"correct": 0, "total": 0})
+    st["total"] += 1
+    if is_correct:
+        st["correct"] += 1
+    register_activity(user, is_correct)
+    save_users(users)
+
+    correct_letter = q_ru["ans"]
+    correct_full_text = next((o for o in q_display["opts"] if o.startswith(correct_letter)), correct_letter)
+
+    return {
+        "correct": is_correct,
+        "correct_letter": correct_letter,
+        "correct_text": correct_full_text,
+        "explanation": q_display["exp"],
+        "stats": st,
+        "streak": user.get("streak", 0),
+    }
+
+
+# ── Карточки (флэшкарты / SRS) ──
+@api.get("/api/flashcard/next")
+async def api_flashcard_next(request: Request, level: str = "all"):
+    uid, _ = auth_user(request)
+    users = load_users()
+    user = get_user(users, uid)
+    lang = get_lang(user)
+    if not has_test_access(user):
+        raise HTTPException(403, detail={"reason": "no_test_access"})
+
+    subjects = [level] if level in SUBJECTS else SUBJECTS
+    subject, idx = pick_flashcard(user, subjects)
+    save_users(users)
+    if subject is None:
+        return {"empty": True}
+
+    q_display = QUESTIONS_BY_LANG[lang][subject_to_display(subject, lang)][idx] if lang == "kk" else QUESTIONS_RU[subject][idx]
+    learned, total = flashcards_progress(user, subjects)
+    return {
+        "subject": subject,
+        "subject_display": subject_to_display(subject, lang),
+        "idx": idx,
+        "text": q_display["q"],
+        "audio_url": f"/api/audio?subject={urllib.parse.quote(subject)}&idx={idx}&pool=vocab",
+        "progress": {"learned": learned, "total": total},
+    }
+
+
+@api.get("/api/flashcard/show")
+async def api_flashcard_show(request: Request, subject: str, idx: int):
+    """Раскрывает обратную сторону карточки (ответ + объяснение) без изменения SRS-состояния.
+    Оценка «знал/не знал» присылается отдельным вызовом /api/flashcard/rate."""
+    uid, _ = auth_user(request)
+    users = load_users()
+    user = get_user(users, uid)
+    lang = get_lang(user)
+    if not has_test_access(user):
+        raise HTTPException(403, detail={"reason": "no_test_access"})
+    if subject not in SUBJECTS or idx < 0 or idx >= len(QUESTIONS_RU.get(subject, [])):
+        raise HTTPException(400, "bad_request")
+
+    q_display = QUESTIONS_BY_LANG[lang][subject_to_display(subject, lang)][idx] if lang == "kk" else QUESTIONS_RU[subject][idx]
+    q_ru = QUESTIONS_RU[subject][idx]
+    correct_letter = q_ru["ans"]
+    correct_full_text = next((o for o in q_display["opts"] if o.startswith(correct_letter)), correct_letter)
+    return {"question": q_display["q"], "answer": correct_full_text, "explanation": q_display["exp"]}
+
+
+@api.post("/api/flashcard/rate")
+async def api_flashcard_rate(request: Request):
+    uid, _ = auth_user(request)
+    body = await request.json()
+    subject = body.get("subject")
+    idx = body.get("idx")
+    know = bool(body.get("know"))
+    if subject not in SUBJECTS or not isinstance(idx, int):
+        raise HTTPException(400, "bad_request")
+
+    users = load_users()
+    user = get_user(users, uid)
+    if not has_test_access(user):
+        raise HTTPException(403, detail={"reason": "no_test_access"})
+
+    update_card_state(user, subject, idx, know)
+    st = user["stats"].setdefault(subject, {"correct": 0, "total": 0})
+    st["total"] += 1
+    if know:
+        st["correct"] += 1
+    register_activity(user, know)
+    save_users(users)
+
+    state = user["flashcards"][flashcard_key(subject, idx)]
+    return {"ok": True, "interval_days": state["interval"]}
+
+
+# ── Тарифы и оплата ──
+@api.get("/api/tariffs")
+async def api_tariffs(request: Request):
+    uid, _ = auth_user(request)
+    users = load_users()
+    user = get_user(users, uid)
+    lang = get_lang(user)
+    return {
+        "plans": [
+            {"key": "standard", "name": PLAN_NAMES["standard"], "price": PRICE_STANDARD},
+            {"key": "premium", "name": PLAN_NAMES["premium"], "price": PRICE_PREMIUM},
+            {"key": "premium_test", "name": PLAN_NAMES["premium_test"], "price": PRICE_PREMIUM_TEST},
+        ],
+        "kaspi_number": KASPI_NUMBER,
+        "support_username": SUPPORT_USERNAME,
+        "current_plan": user.get("plan", "free") if is_premium(user) else "free",
+    }
+
+
+@api.post("/api/buy")
+async def api_buy(request: Request):
+    uid, name = auth_user(request)
+    body = await request.json()
+    plan = body.get("plan")
+    if plan not in ("standard", "premium", "premium_test"):
+        raise HTTPException(400, "bad_plan")
+
+    users = load_users()
+    user = get_user(users, uid)
+    user["pending_payment"] = plan
+    save_users(users)
+
+    return {
+        "kaspi_number": KASPI_NUMBER,
+        "price": PLAN_PRICES[plan],
+        "plan_name": PLAN_NAMES[plan],
+    }
+
+
+@api.post("/api/paid")
+async def api_paid(request: Request):
+    """Пользователь нажал «Я оплатил» в Mini App — уведомляем админа, как и в боте."""
+    uid, raw_name = auth_user(request)
+    body = await request.json()
+    plan = body.get("plan")
+    if plan not in ("standard", "premium", "premium_test"):
+        raise HTTPException(400, "bad_plan")
+    price = PLAN_PRICES[plan]
+    plan_name = PLAN_NAMES[plan]
+    safe_name = re.sub(r'[*_`\[\]]', '', raw_name or "Пользователь")
+
+    admin_text = (
+        f"💰 *Новая оплата! (HSK Mini App)*\n\n"
+        f"👤 {safe_name}\n"
+        f"🆔 ID: `{uid}`\n"
+        f"📦 Тариф: {plan_name}\n"
+        f"💵 Сумма: {price} ₸\n\n"
+        f"Подтверди оплату на Kaspi и нажми кнопку 👇"
+    )
+    admin_keyboard = [[InlineKeyboardButton(f"✅ Активировать {plan_name}", callback_data=f"adm_act|{uid}|{plan}")]]
+    if telegram_app is not None:
+        try:
+            await telegram_app.bot.send_message(
+                chat_id=ADMIN_ID, text=admin_text, parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(admin_keyboard)
+            )
+        except Exception as e:
+            logger.error(f"Не удалось уведомить админа (Mini App): {e}")
+    return {"ok": True, "support_username": SUPPORT_USERNAME}
+
+
+# ── Статика: сама Mini App (HTML/CSS/JS) ──
+if WEBAPP_DIR.exists():
+    api.mount("/", StaticFiles(directory=str(WEBAPP_DIR), html=True), name="webapp")
+
+
 def main():
-    app = Application.builder().token(TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("activate", activate_cmd))
-    app.add_handler(CommandHandler("users", users_cmd))
-    app.add_handler(CommandHandler("refresh_menu", refresh_menu_cmd))
-    app.add_handler(CommandHandler("admin", admin_panel_cmd))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_handler))
-    app.add_handler(CallbackQueryHandler(button_callback))
-
-    app.job_queue.run_daily(broadcast, time=dtime(8, 0, tzinfo=ALMATY_TZ))
-    app.job_queue.run_daily(broadcast, time=dtime(12, 0, tzinfo=ALMATY_TZ))
-    app.job_queue.run_daily(broadcast, time=dtime(15, 0, tzinfo=ALMATY_TZ))
-    app.job_queue.run_daily(broadcast, time=dtime(18, 0, tzinfo=ALMATY_TZ))
-    app.job_queue.run_daily(broadcast, time=dtime(21, 0, tzinfo=ALMATY_TZ))
-    app.job_queue.run_daily(send_daily_report, time=dtime(22, 0, tzinfo=ALMATY_TZ))
-
-    logger.info("HSK бот запущен!")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    port = int(os.environ.get("PORT", "8080"))
+    uvicorn.run(api, host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
     main()
