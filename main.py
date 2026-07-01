@@ -7,7 +7,7 @@ import io
 from pathlib import Path
 from datetime import time as dtime, datetime, timedelta
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo, MenuButtonWebApp
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo, MenuButtonWebApp, InputFile
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 import pytz
 from gtts import gTTS
@@ -3241,6 +3241,173 @@ async def send_daily_report(context: ContextTypes.DEFAULT_TYPE):
 # ══════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════
+# ══════════════════════════════════════════════
+# СЕРТИФИКАТ ДОСТИЖЕНИЙ — генерация PDF
+# ══════════════════════════════════════════════
+from reportlab.pdfgen import canvas as _rl_canvas
+from reportlab.lib.pagesizes import A4 as _RL_A4, landscape as _rl_landscape
+from reportlab.pdfbase import pdfmetrics as _rl_pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont as _RL_TTFont
+from reportlab.lib.utils import ImageReader as _RL_ImageReader
+
+ASSETS_DIR = Path(__file__).parent / "assets"
+_CERT_FONTS_READY = False
+
+
+def _ensure_cert_fonts():
+    global _CERT_FONTS_READY
+    if _CERT_FONTS_READY:
+        return
+    try:
+        _rl_pdfmetrics.registerFont(_RL_TTFont("DejaVu", str(ASSETS_DIR / "fonts" / "DejaVuSans.ttf")))
+        _rl_pdfmetrics.registerFont(_RL_TTFont("DejaVu-Bold", str(ASSETS_DIR / "fonts" / "DejaVuSans-Bold.ttf")))
+        _CERT_FONTS_READY = True
+    except Exception as e:
+        logger.error(f"Не удалось загрузить шрифты для сертификата: {e}")
+
+
+_CERT_INK = (15/255, 27/255, 45/255)
+_CERT_INK2 = (22/255, 35/255, 58/255)
+_CERT_GOLD = (240/255, 180/255, 41/255)
+_CERT_SEAL = (193/255, 39/255, 45/255)
+_CERT_PAPER = (245/255, 239/255, 230/255)
+_CERT_PAPER_DIM = (201/255, 195/255, 184/255)
+
+_CERT_TEXT = {
+    "ru": {
+        "title": "С Е Р Т И Ф И К А Т   Д О С Т И Ж Е Н И Й",
+        "subtitle": "HSK РЕПЕТИТОР  ·  ПОДГОТОВКА К ЭКЗАМЕНУ HSK 1–6",
+        "intro": "Настоящим подтверждается, что",
+        "body": "занимается подготовкой к HSK в интерактивном тренажёре",
+        "streak_label": "дней подряд",
+        "best_label": "рекорд серии",
+        "cards_label": "карточек выучено",
+        "date_label": "Дата выдачи",
+    },
+    "kk": {
+        "title": "Ж Е Т І С Т І К   С Е Р Т И Ф И К А Т Ы",
+        "subtitle": "HSK РЕПЕТИТОР  ·  HSK 1–6 ЕМТИХАНЫНА ДАЙЫНДЫҚ",
+        "intro": "Осымен куәландырылады, ",
+        "body": "интерактивті тренажерде HSK-ға дайындалуда",
+        "streak_label": "күн қатарынан",
+        "best_label": "серия рекорды",
+        "cards_label": "карточка үйренілді",
+        "date_label": "Берілген күні",
+    },
+}
+
+
+def generate_certificate_pdf(name, lang, streak, best_streak, stats, subjects, flash_learned, flash_total):
+    """Генерирует PDF-сертификат достижений пользователя и возвращает bytes."""
+    _ensure_cert_fonts()
+    tx = _CERT_TEXT.get(lang, _CERT_TEXT["ru"])
+    buf = io.BytesIO()
+    W, H = _rl_landscape(_RL_A4)
+    c = _rl_canvas.Canvas(buf, pagesize=(W, H))
+
+    c.setFillColorRGB(*_CERT_INK)
+    c.rect(0, 0, W, H, fill=1, stroke=0)
+
+    margin = 26
+    c.setFillColorRGB(*_CERT_INK2)
+    c.roundRect(margin, margin, W - 2*margin, H - 2*margin, 14, fill=1, stroke=0)
+
+    bm = margin + 16
+    c.setStrokeColorRGB(*_CERT_GOLD)
+    c.setLineWidth(1.4)
+    c.roundRect(bm, bm, W - 2*bm, H - 2*bm, 10, fill=0, stroke=1)
+    bm2 = bm + 6
+    c.setLineWidth(0.6)
+    c.roundRect(bm2, bm2, W - 2*bm2, H - 2*bm2, 8, fill=0, stroke=1)
+
+    cx = W / 2
+
+    c.setFillColorRGB(*_CERT_GOLD)
+    c.setFont("DejaVu-Bold", 13)
+    c.drawCentredString(cx, H - 78, tx["title"])
+
+    c.setFillColorRGB(*_CERT_PAPER_DIM)
+    c.setFont("DejaVu", 10)
+    c.drawCentredString(cx, H - 96, tx["subtitle"])
+
+    c.setStrokeColorRGB(*_CERT_GOLD)
+    c.setLineWidth(0.8)
+    c.line(cx - 90, H - 110, cx + 90, H - 110)
+
+    c.setFillColorRGB(*_CERT_PAPER_DIM)
+    c.setFont("DejaVu", 11)
+    c.drawCentredString(cx, H - 150, tx["intro"])
+
+    c.setFillColorRGB(*_CERT_GOLD)
+    name = name or "HSK Student"
+    name_font_size = 30 if len(name) < 18 else (24 if len(name) < 26 else 18)
+    c.setFont("DejaVu-Bold", name_font_size)
+    c.drawCentredString(cx, H - 190, name)
+
+    c.setFillColorRGB(*_CERT_PAPER_DIM)
+    c.setFont("DejaVu", 11)
+    c.drawCentredString(cx, H - 214, tx["body"])
+
+    stat_y = H - 260
+    stat_items = [
+        (f"{streak}", tx["streak_label"]),
+        (f"{best_streak}", tx["best_label"]),
+        (f"{flash_learned}/{flash_total}", tx["cards_label"]),
+    ]
+    gap = 180
+    start_x = cx - gap
+    for i, (val, label) in enumerate(stat_items):
+        x = start_x + i * gap
+        c.setFillColorRGB(*_CERT_PAPER)
+        c.setFont("DejaVu-Bold", 20)
+        c.drawCentredString(x, stat_y, val)
+        c.setFillColorRGB(*_CERT_PAPER_DIM)
+        c.setFont("DejaVu", 8.5)
+        c.drawCentredString(x, stat_y - 16, label.upper())
+
+    bars_top = H - 310
+    bar_w = 290
+    bar_h = 8
+    bx = cx - bar_w/2 + 20
+    row_gap = 26
+    for i, s in enumerate(subjects):
+        st = stats.get(s, {"correct": 0, "total": 0})
+        pct = (st["correct"] / st["total"]) if st["total"] else 0
+        y = bars_top - i * row_gap
+        c.setFillColorRGB(*_CERT_PAPER_DIM)
+        c.setFont("DejaVu", 9)
+        c.drawString(bx - 66, y - 3, s)
+        c.setFillColorRGB(*_CERT_INK)
+        c.roundRect(bx, y - bar_h, bar_w, bar_h, 3, fill=1, stroke=0)
+        c.setFillColorRGB(*_CERT_SEAL)
+        fill_w = max(4, bar_w * pct)
+        c.roundRect(bx, y - bar_h, fill_w, bar_h, 3, fill=1, stroke=0)
+        c.setFillColorRGB(*_CERT_PAPER_DIM)
+        c.setFont("DejaVu", 8)
+        c.drawString(bx + bar_w + 10, y - 3, f"{round(pct*100)}%")
+
+    seal_path = ASSETS_DIR / "seal.png"
+    if seal_path.exists():
+        seal_img = _RL_ImageReader(str(seal_path))
+        seal_size = 92
+        sx, sy = W - bm - 150, margin + 46
+        c.saveState()
+        c.translate(sx, sy)
+        c.rotate(-8)
+        c.drawImage(seal_img, -seal_size/2, -seal_size/2, seal_size, seal_size, mask="auto")
+        c.restoreState()
+
+    c.setFillColorRGB(*_CERT_PAPER_DIM)
+    c.setFont("DejaVu", 9)
+    date_str = datetime.now(ALMATY_TZ).strftime("%d.%m.%Y")
+    c.drawString(bm + 30, margin + 40, f"{tx['date_label']}: {date_str}")
+    c.drawString(bm + 30, margin + 26, "hsk-repetitor")
+
+    c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
 # ══════════════════════════════════════════════════════════════
 # MINI APP — FastAPI backend (работает в одном процессе с ботом)
 # ══════════════════════════════════════════════════════════════
@@ -3662,6 +3829,50 @@ async def api_buy(request: Request):
         "price": PLAN_PRICES[plan],
         "plan_name": PLAN_NAMES[plan],
     }
+
+
+@api.post("/api/certificate")
+async def api_certificate(request: Request):
+    """Генерирует PDF-сертификат достижений и отправляет его пользователю прямо в чат бота
+    (надёжнее, чем скачивание файла из встроенного браузера Telegram)."""
+    uid, name = auth_user(request)
+    users = load_users()
+    user = get_user(users, uid)
+    lang = get_lang(user)
+
+    flash_learned, flash_total = flashcards_progress(user, SUBJECTS) if has_test_access(user) else (0, 0)
+    display_name = user.get("name") or name or "HSK Student"
+
+    try:
+        pdf_bytes = generate_certificate_pdf(
+            name=display_name,
+            lang=lang,
+            streak=user.get("streak", 0),
+            best_streak=user.get("best_streak", 0),
+            stats=user.get("stats", {}),
+            subjects=SUBJECTS,
+            flash_learned=flash_learned,
+            flash_total=flash_total,
+        )
+    except Exception as e:
+        logger.error(f"Не удалось сгенерировать сертификат: {e}")
+        raise HTTPException(500, "certificate_failed")
+
+    if telegram_app is None:
+        raise HTTPException(503, "bot_not_ready")
+
+    caption = "🎓 Твой сертификат достижений HSK готов!" if lang == "ru" else "🎓 HSK жетістік сертификатың дайын!"
+    try:
+        await telegram_app.bot.send_document(
+            chat_id=uid,
+            document=InputFile(io.BytesIO(pdf_bytes), filename="hsk_certificate.pdf"),
+            caption=caption,
+        )
+    except Exception as e:
+        logger.error(f"Не удалось отправить сертификат {uid}: {e}")
+        raise HTTPException(500, "send_failed")
+
+    return {"ok": True}
 
 
 @api.post("/api/paid")
