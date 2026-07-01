@@ -3,3 +3,4 @@ pytz
 gTTS==2.5.1
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
+reportlab==4.2.5
